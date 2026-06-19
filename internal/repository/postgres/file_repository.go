@@ -2,8 +2,8 @@ package postgres
 
 import (
 	"context"
-	"github.com/3HunnaWeight/file-service/internal/domain"
 
+	"github.com/3HunnaWeight/file-service/internal/domain"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -69,4 +69,12 @@ func (r *FileRepository) GetByPublicID(
 	}
 
 	return &f, nil
+}
+
+func (r *FileRepository) Delete(ctx context.Context, publicID string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE files SET deleted_at = NOW()
+		WHERE public_id = $1 AND deleted_at IS NULL
+	`, publicID)
+	return err
 }

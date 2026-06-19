@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 
@@ -22,6 +21,7 @@ type FileService interface {
 		ctx context.Context,
 		publicID string,
 	) (io.ReadCloser, *domain.File, error)
+	Delete(ctx context.Context, publicID string) error
 }
 
 type FileHandler struct {
@@ -37,14 +37,14 @@ func (h *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		respondErr(w, http.StatusBadRequest, "missing file field")
 		return
 	}
 	defer file.Close()
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondErr(w, http.StatusBadRequest, "failed to read file")
 		return
 	}
 
@@ -55,12 +55,11 @@ func (h *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		header.Header.Get("Content-Type"),
 	)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		respondErr(w, http.StatusInternalServerError, "upload failed")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	respondJSON(w, http.StatusCreated, map[string]string{
 		"id":  publicID,
 		"url": "/files/" + publicID,
 	})
@@ -71,7 +70,7 @@ func (h *FileHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	reader, file, err := h.service.Download(r.Context(), publicID)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		respondErr(w, http.StatusNotFound, "file not found")
 		return
 	}
 	defer reader.Close()
@@ -80,6 +79,17 @@ func (h *FileHandler) Download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="`+file.OriginalName+`"`)
 
 	if _, err := io.Copy(w, reader); err != nil {
-		http.Error(w, "stream failed", http.StatusInternalServerError)
+		respondErr(w, http.StatusInternalServerError, "stream failed")
 	}
+}
+
+func (h *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	publicID := chi.URLParam(r, "id")
+
+	if err := h.service.Delete(r.Context(), publicID); err != nil {
+		respondErr(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

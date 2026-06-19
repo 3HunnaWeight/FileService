@@ -2,14 +2,16 @@ package service
 
 import (
 	"context"
+	"io"
+
 	"github.com/3HunnaWeight/file-service/internal/domain"
 	"github.com/google/uuid"
-	"io"
 )
 
 type Storage interface {
 	Upload(ctx context.Context, key string, data []byte, mime string) error
 	Download(ctx context.Context, key string) (io.ReadCloser, error)
+	Delete(ctx context.Context, key string) error
 }
 
 type FileService struct {
@@ -23,10 +25,8 @@ func NewFileService(repo domain.FileRepository, storage Storage, bucket string) 
 }
 
 func (s *FileService) Upload(ctx context.Context, name string, data []byte, mime string) (string, error) {
-
 	id := uuid.New().String()
 	publicID := uuid.New().String()
-
 	key := "uploads/" + id + "/" + name
 
 	err := s.repo.Create(ctx, &domain.File{
@@ -43,8 +43,7 @@ func (s *FileService) Upload(ctx context.Context, name string, data []byte, mime
 		return "", err
 	}
 
-	err = s.storage.Upload(ctx, key, data, mime)
-	if err != nil {
+	if err := s.storage.Upload(ctx, key, data, mime); err != nil {
 		return "", err
 	}
 
@@ -52,32 +51,35 @@ func (s *FileService) Upload(ctx context.Context, name string, data []byte, mime
 }
 
 func (s *FileService) GetByPublicID(ctx context.Context, publicID string) (*domain.File, error) {
-
-	f, err := s.repo.GetByPublicID(ctx, publicID)
-	if err != nil {
-		return nil, err
-	}
-
-	return f, nil
+	return s.repo.GetByPublicID(ctx, publicID)
 }
 
 func (s *FileService) Download(
 	ctx context.Context,
 	publicID string,
 ) (io.ReadCloser, *domain.File, error) {
-
 	file, err := s.repo.GetByPublicID(ctx, publicID)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	reader, err := s.storage.Download(
-		ctx,
-		file.StorageKey,
-	)
+	reader, err := s.storage.Download(ctx, file.StorageKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return reader, file, nil
+}
+
+func (s *FileService) Delete(ctx context.Context, publicID string) error {
+	file, err := s.repo.GetByPublicID(ctx, publicID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.storage.Delete(ctx, file.StorageKey); err != nil {
+		return err
+	}
+
+	return s.repo.Delete(ctx, publicID)
 }

@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"io"
 )
 
 type Storage struct {
@@ -51,7 +52,6 @@ func (s *Storage) Upload(ctx context.Context, key string, body []byte, contentTy
 		Body:        bytes.NewReader(body),
 		ContentType: aws.String(contentType),
 	})
-
 	return err
 }
 
@@ -63,8 +63,15 @@ func (s *Storage) Download(ctx context.Context, key string) (io.ReadCloser, erro
 	if err != nil {
 		return nil, err
 	}
-
 	return resp.Body, nil
+}
+
+func (s *Storage) Delete(ctx context.Context, key string) error {
+	_, err := s.Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.Bucket),
+		Key:    aws.String(key),
+	})
+	return err
 }
 
 func (s *Storage) EnsureBucket(ctx context.Context) error {
