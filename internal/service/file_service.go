@@ -83,3 +83,17 @@ func (s *FileService) Delete(ctx context.Context, publicID string) error {
 
 	return s.repo.Delete(ctx, publicID)
 }
+
+func (s *FileService) List(ctx context.Context, limit, offset int) ([]domain.File, int, error) {
+	files, err := s.repo.List(ctx, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := s.repo.Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return files, total, nil
+}

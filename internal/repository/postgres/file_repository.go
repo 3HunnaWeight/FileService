@@ -33,7 +33,6 @@ func (r *FileRepository) Create(ctx context.Context, f *domain.File) error {
 		f.StorageKey,
 		f.CreatedAt,
 	)
-
 	return err
 }
 
@@ -41,7 +40,6 @@ func (r *FileRepository) GetByPublicID(
 	ctx context.Context,
 	publicID string,
 ) (*domain.File, error) {
-
 	row := r.db.QueryRow(ctx, `
 		SELECT id, public_id, original_name, mime_type,
 		       size_bytes, storage_provider, storage_bucket,
@@ -51,7 +49,6 @@ func (r *FileRepository) GetByPublicID(
 	`, publicID)
 
 	var f domain.File
-
 	err := row.Scan(
 		&f.ID,
 		&f.PublicID,
@@ -63,11 +60,9 @@ func (r *FileRepository) GetByPublicID(
 		&f.StorageKey,
 		&f.CreatedAt,
 	)
-
 	if err != nil {
 		return nil, err
 	}
-
 	return &f, nil
 }
 
@@ -77,4 +72,48 @@ func (r *FileRepository) Delete(ctx context.Context, publicID string) error {
 		WHERE public_id = $1 AND deleted_at IS NULL
 	`, publicID)
 	return err
+}
+
+func (r *FileRepository) List(ctx context.Context, limit, offset int) ([]domain.File, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, public_id, original_name, mime_type,
+		       size_bytes, storage_provider, storage_bucket,
+		       storage_key, created_at
+		FROM files
+		WHERE deleted_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []domain.File
+	for rows.Next() {
+		var f domain.File
+		if err := rows.Scan(
+			&f.ID,
+			&f.PublicID,
+			&f.OriginalName,
+			&f.MimeType,
+			&f.SizeBytes,
+			&f.StorageProvider,
+			&f.StorageBucket,
+			&f.StorageKey,
+			&f.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, rows.Err()
+}
+
+func (r *FileRepository) Count(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM files WHERE deleted_at IS NULL
+	`).Scan(&count)
+	return count, err
 }

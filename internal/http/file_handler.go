@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/3HunnaWeight/file-service/internal/domain"
 	"github.com/go-chi/chi/v5"
@@ -22,6 +23,7 @@ type FileService interface {
 		publicID string,
 	) (io.ReadCloser, *domain.File, error)
 	Delete(ctx context.Context, publicID string) error
+	List(ctx context.Context, limit, offset int) ([]domain.File, int, error)
 }
 
 type FileHandler struct {
@@ -92,4 +94,49 @@ func (h *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *FileHandler) List(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	files, total, err := h.service.List(r.Context(), limit, offset)
+	if err != nil {
+		respondErr(w, http.StatusInternalServerError, "list failed")
+		return
+	}
+
+	type fileJSON struct {
+		ID           string `json:"id"`
+		PublicID     string `json:"public_id"`
+		OriginalName string `json:"original_name"`
+		MimeType     string `json:"mime_type"`
+		SizeBytes    int64  `json:"size_bytes"`
+		CreatedAt    string `json:"created_at"`
+	}
+
+	list := make([]fileJSON, len(files))
+	for i, f := range files {
+		list[i] = fileJSON{
+			ID:           f.ID,
+			PublicID:     f.PublicID,
+			OriginalName: f.OriginalName,
+			MimeType:     f.MimeType,
+			SizeBytes:    f.SizeBytes,
+			CreatedAt:    f.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"files":  list,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }

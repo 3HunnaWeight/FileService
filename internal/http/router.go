@@ -17,6 +17,7 @@ func NewRouter(fileHandler *FileHandler) chi.Router {
 	r.Use(middleware.Heartbeat("/healthz"))
 
 	r.Post("/files", fileHandler.Upload)
+	r.Get("/files", fileHandler.List)
 	r.Get("/files/{id}", fileHandler.Download)
 	r.Delete("/files/{id}", fileHandler.Delete)
 
