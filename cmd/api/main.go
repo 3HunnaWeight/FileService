@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/3HunnaWeight/file-service/internal/config"
 	apphttp "github.com/3HunnaWeight/file-service/internal/http"
@@ -12,19 +16,30 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	cfg := config.MustLoad()
 
-	// DB
-	db, err := postgres.New(cfg.PostgresDSN)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	pool, err := postgres.New(ctx, cfg.PostgresDSN)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("postgres connect failed", "err", err)
+		os.Exit(1)
 	}
+	defer pool.Close()
 
-	repo := postgres.NewFileRepository(db)
+	if err := postgres.Ping(ctx, pool); err != nil {
+		slog.Error("postgres ping failed", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("postgres connected")
 
-	// S3 storage
 	storage, err := s3storage.New(
-		context.Background(),
+		ctx,
 		cfg.S3Endpoint,
 		cfg.S3AccessKey,
 		cfg.S3SecretKey,
@@ -32,21 +47,29 @@ func main() {
 		cfg.S3Bucket,
 	)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("s3 init failed", "err", err)
+		os.Exit(1)
 	}
 
-	_ = storage.EnsureBucket(context.Background())
+	if err := storage.EnsureBucket(ctx); err != nil {
+		slog.Error("s3 bucket check failed", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("s3 storage ready", "bucket", cfg.S3Bucket)
 
-	// service layer
+	repo := postgres.NewFileRepository(pool)
 	fileService := service.NewFileService(repo, storage, cfg.S3Bucket)
-
-	// http layer
 	fileHandler := apphttp.NewFileHandler(fileService)
 	router := apphttp.NewRouter(fileHandler)
-	log.Println("server started :" + cfg.ServerPort)
 
-	err = apphttp.StartServer(":"+cfg.ServerPort, router)
-	if err != nil {
-		log.Fatal(err)
-	}
+	addr := ":" + cfg.ServerPort
+	srv := &apphttp.Server{}
+	go srv.Start(addr, router)
+
+	<-ctx.Done()
+	slog.Info("shutdown signal received")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	srv.Shutdown(shutdownCtx)
 }

@@ -1,21 +1,28 @@
 package http
 
 import (
-	"github.com/go-chi/chi/v5"
+	"log/slog"
 	"net/http"
-)
 
-//type Handler struct {
-//	fileHandler *FileHandler
-//}
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+)
 
 func NewRouter(fileHandler *FileHandler) chi.Router {
 	r := chi.NewRouter()
 
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Heartbeat("/healthz"))
+
 	r.Post("/files", fileHandler.Upload)
 	r.Get("/files/{id}", fileHandler.Download)
+
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		w.WriteHeader(http.StatusOK)
+		slog.Debug("health check")
 	})
 
 	return r
